@@ -48,10 +48,12 @@ def fit_sigmoid(x, y):
     sses = []
     popts = []
     for time_shift in range(60, 301, 60):
-        popt, _ = curve_fit(sig_fun, x, y, bounds=([0.1, 0.05, 10], [5.7, 0.9, time_shift]))
+        popt, _ = curve_fit(sig_fun, x, y, bounds=([0.1, 0.05, 10], [6, 0.9, time_shift]))
         sses.append(((y - sig_fun(x, *popt)) ** 2).sum())
         popts.append(popt)
     popt = popts[np.argmin(sses)]
+    if 10 ** popt[0] > 10 * max(y):
+        return None
     return lambda x: sig_fun(x, *popt)
 
 
@@ -67,6 +69,7 @@ def generate_plot(data, start, project=1, metric='Cases'):
         # 'Trendline (exponential)': fit_exponential(x, y),
         'Trendline (logistic)': fit_sigmoid(tuple(x.tolist()), tuple(y.tolist()))
     }
+    trends = {k: v for k, v in trends.items() if v is not None}
 
     trend_dates = pd.date_range(data.index.min(), data.index.max() + timedelta(days=project))
     trend_x = trend_dates.astype(np.int64) / 10e13
