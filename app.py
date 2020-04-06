@@ -48,7 +48,7 @@ def fit_sigmoid(x, y):
     sses = []
     popts = []
     for time_shift in range(60, 301, 60):
-        popt, _ = curve_fit(sig_fun, x, y, bounds=([0.1, 0.05, 10], [6, 0.9, time_shift]))
+        popt, _ = curve_fit(sig_fun, x, y, bounds=([0.1, 0.05, 10], [5.7, 0.9, time_shift]))
         sses.append(((y - sig_fun(x, *popt)) ** 2).sum())
         popts.append(popt)
     popt = popts[np.argmin(sses)]
@@ -133,7 +133,7 @@ def generate_plot(data, start, project=1, metric='Cases'):
             'data': traces_total,
             'layout': dict(
                 xaxis={'title': 'Date', 'range': [start, trend_dates.max()]},
-                yaxis={'title': f'{metric} per day', 'range': [- y_max_total * 0.05, y_max_total * 1.05]},
+                yaxis={'title': f'{metric}', 'range': [- y_max_total * 0.05, y_max_total * 1.05]},
                 hovermode='closest',
                 height=500,
                 title=f'Total {metric}',
@@ -149,7 +149,7 @@ def generate_plot(data, start, project=1, metric='Cases'):
             'data': traces_new,
             'layout': dict(
                 xaxis={'title': 'Date', 'range': [start, trend_dates.max()]},
-                yaxis={'title': f'{metric} per day', 'range': [- y_max_new * 0.05, y_max_new * 1.05]},
+                yaxis={'title': f'{metric}', 'range': [- y_max_new * 0.05, y_max_new * 1.05]},
                 hovermode='closest',
                 height=500,
                 title=f'New {metric}',
