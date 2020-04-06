@@ -72,8 +72,8 @@ def generate_plot(data, start, project=1, metric='Cases'):
 
     x = data.index.astype(np.int64) / 10e13
     x_min = x.min().copy()
-    x = x - x_min
-    y = data[f'Total {metric}']
+    x = x[:-1] - x_min
+    y = data[f'Total {metric}'][:-1]
 
     trends = {
         # 'Trendline (exponential)': fit_exponential(x, y),
