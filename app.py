@@ -1,4 +1,5 @@
 from functools import lru_cache
+import time
 
 import dash
 import dash_core_components as dcc
@@ -11,14 +12,23 @@ from scipy.optimize import curve_fit
 from datetime import datetime, timedelta
 
 
-data = pd.read_csv('https://health-infobase.canada.ca/src/data/covidLive/covid19.csv')
-data = data[['prname', 'date', 'numdeaths', 'numtotal', 'numtested']]
-data['date_index'] = pd.to_datetime(data.date, format='%d-%m-%Y')
-data.set_index('date_index', inplace=True)
-data.columns = ['Province', 'Date', 'Total Deaths', 'Total Cases', 'Total Tests']
-data.sort_index(inplace=True)
+@lru_cache(1)
+def get_data(hour_str):
+    data = pd.read_csv('https://health-infobase.canada.ca/src/data/covidLive/covid19.csv')
+    data = data[['prname', 'date', 'numdeaths', 'numtotal', 'numtested']]
+    data['date_index'] = pd.to_datetime(data.date, format='%d-%m-%Y')
+    data.set_index('date_index', inplace=True)
+    data.columns = ['Province', 'Date', 'Total Deaths', 'Total Cases', 'Total Tests']
+    data.sort_index(inplace=True)
 
-provinces = data.Province.unique()
+    provinces = data.Province.unique()
+
+    return data, provinces
+
+
+start_t = time.time()
+data, provinces = get_data(datetime.now().strftime('%Y%m%d%H'))
+print(time.time() - start_t)
 
 
 def filter_province(data, filt='Canada'):
@@ -260,6 +270,9 @@ app.layout = html.Div(
 )
 @lru_cache(32)
 def update_output_div(province, start_date, project):
+    start_t = time.time()
+    data, provinces = get_data(datetime.now().strftime('%Y%m%d%H'))
+    print(time.time() - start_t)
     data_filt = filter_province(data, filt=province)
     table = generate_table(data_filt)
     case_plot = generate_plot(data_filt, start=start_date, project=project)
