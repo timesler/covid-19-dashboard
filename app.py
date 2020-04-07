@@ -1,17 +1,18 @@
 from functools import lru_cache
 import time
 import requests
+from datetime import datetime, timedelta
 
 import dash
 import dash_core_components as dcc
 import dash_html_components as html
+import dash_table
 from dash.dependencies import Input, Output, State
 import plotly.graph_objects as go
 import plotly.express as px
 import numpy as np
 import pandas as pd
 from scipy.optimize import curve_fit
-from datetime import datetime, timedelta
 
 response = requests.get('https://raw.githubusercontent.com/codeforamerica/click_that_hood/master/public/data/canada.geojson')
 geojson = response.json()
@@ -27,6 +28,7 @@ def get_data(hour_str):
     data = pd.read_csv('https://health-infobase.canada.ca/src/data/covidLive/covid19.csv')
     data = data[['prname', 'date', 'numdeaths', 'numtotal', 'numtested']]
     data['date_index'] = pd.to_datetime(data.date, format='%d-%m-%Y')
+    data.date = data.date_index.dt.strftime('%Y-%m-%d')
     data.set_index('date_index', inplace=True)
     data.columns = ['Province', 'Date', 'Total Deaths', 'Total Cases', 'Total Tests']
     data.sort_index(inplace=True)
@@ -36,9 +38,7 @@ def get_data(hour_str):
     return data, provinces
 
 
-start_t = time.time()
 data, provinces = get_data(datetime.now().strftime('%Y%m%d%H'))
-print(time.time() - start_t)
 
 
 @lru_cache(20)
@@ -198,22 +198,16 @@ def generate_plot(data, start, project=1, metric='Cases'):
 
 
 def generate_table(data):
-    table = html.Table(
-        [
-            html.Thead(
-                html.Tr([html.Th(col) for col in data.columns])
-            ),
-            html.Tbody([
-                html.Tr([
-                    html.Td(data.iloc[i][col]) for col in data.columns
-                ]) for i in range(len(data))
-            ])
-        ],
-        style={'width': '80%', 'marginLeft': '10%', 'marginRight': '10%'}
+    table = dash_table.DataTable(
+        columns=[{"name": i, "id": i} for i in data.columns],
+        data=data.to_dict('records'),
+        sort_action="native",
+        style_as_list_view=True,
+        style_cell={'textAlign': 'center'}
     )
     return html.Details([
         html.Summary('Expand for tabular data'),
-        table,
+        html.Div([table], style={'width': '80%', 'marginLeft': '10%', 'marginRight': '10%', 'marginTop': 30}),
     ])
 
 
@@ -332,6 +326,7 @@ app.layout = html.Div(
                 'textAlign': 'right', 'fontSize': '12px',
             }
         ),
+        html.Div(id='placeholder')
     ],
     style={'width': '86%', 'margin': 'auto'}
 )
@@ -371,7 +366,16 @@ def update_vis(province, start_date, project):
     return [case_plot, death_plot, table], map_plot
 
 
-@app.callback(
+app.clientside_callback(
+    """
+    function(map_click, old_value) {
+        var value = old_value;
+        if (map_click !== undefined) {
+            value = map_click['points'][0]['location']
+        }
+        return value
+    }
+    """,
     Output('province-select', 'value'),
     [
         Input('map_graph', 'clickData'),
@@ -380,9 +384,6 @@ def update_vis(province, start_date, project):
         State('province-select', 'value'),
     ]
 )
-def update_dropdown(map_click, old_value):
-    value = old_value if map_click is None else map_click['points'][0]['location']
-    return value
 
 
 if __name__ == '__main__':
