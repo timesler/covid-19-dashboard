@@ -1,15 +1,25 @@
 from functools import lru_cache
 import time
+import requests
 
 import dash
 import dash_core_components as dcc
 import dash_html_components as html
 from dash.dependencies import Input, Output
 import plotly.graph_objects as go
+import plotly.express as px
 import numpy as np
 import pandas as pd
 from scipy.optimize import curve_fit
 from datetime import datetime, timedelta
+
+response = requests.get('https://raw.githubusercontent.com/codeforamerica/click_that_hood/master/public/data/canada.geojson')
+geojson = response.json()
+
+for i, gj in enumerate(geojson['features']):
+    if 'Yukon' in gj['properties']['name']:
+        gj['properties']['name'] = 'Yukon'
+        geojson['features'][i] = gj
 
 
 @lru_cache(1)
@@ -202,6 +212,62 @@ def generate_table(data):
     ])
 
 
+@lru_cache(1)
+def generate_map(provinces, total_cases, province='Canada'):
+    df = pd.DataFrame({'Province': provinces, 'Total Cases': total_cases})
+    df = df.groupby('Province').agg({'Total Cases': max}).reset_index()
+    df = df.loc[df.Province != 'Canada']
+
+    fig = px.choropleth(
+        geojson=geojson, 
+        locations=df['Province'],
+        color=df['Total Cases'],
+        featureidkey="properties.name",
+        color_continuous_scale=[
+            (0, "lightgrey"), 
+            (0.000001, "lightgrey"),
+            (0.000001, "rgb(239, 243, 255)"),
+            (0.05, "rgb(189, 215, 231)"),
+            (0.1, "rgb(107, 174, 214)"),
+            (0.25, "rgb(49, 130, 189)"),
+            (0.5, "rgb(8, 81, 156)"),
+            (0.8, "rgb(5, 51, 97)"),
+            (1, "rgb(5, 51, 97)"),
+        ],
+        projection='orthographic',
+        hover_name=df['Province'],
+        labels={'color':'Total cases'}
+    )
+
+    fig.data[0].hovertemplate = '<b>%{hovertext}</b><br><br>Total cases: %{z}<extra></extra>'
+
+    fig.update_geos(
+        # center=dict(lat=57.319701, lon=-105.880261),
+        lataxis_range=[40, 83],
+        lonaxis_range=[-142, -47],
+        projection_rotation=dict(lat=30),
+        visible=False
+    )
+    
+    fig.update_layout(
+        title=dict(text='Total Cases By Province', y=0.9, x=0),
+        margin={"r": 0, "t": 0, "l": 0, "b": 0},
+        dragmode=False,
+        annotations=[
+            dict(
+                x=0,
+                y=0.85,
+                showarrow=False,
+                text="Select province to filter charts",
+                xref="paper",
+                yref="paper"
+            )
+        ]
+    )
+
+    return dcc.Graph(figure=fig, style=dict(paddingTop=20, height=350, width=800, margin='auto'), id='map_graph')
+
+
 app = dash.Dash(__name__)
 
 server = app.server
@@ -247,6 +313,7 @@ app.layout = html.Div(
                 ),
             ],
         ),
+        html.Div(id='map', children=[dcc.Graph(id='map_graph', style=dict(position='absolute', left='-100vw'))]),
         html.Div(id='vis'),
         html.Div(
             'Copyright \u00A9 Xtract Technologies 2020',
@@ -261,24 +328,28 @@ app.layout = html.Div(
 
 
 @app.callback(
-    Output('vis', 'children'),
+    [
+        Output('vis', 'children'),
+        Output('map', 'children'),
+    ],
     [
         Input('province-select', 'value'),
         Input('time-select', 'date'),
         Input('project-select', 'value'),
+        Input('map_graph', 'clickData'),
     ]
 )
-@lru_cache(32)
-def update_output_div(province, start_date, project):
-    start_t = time.time()
+def update_output_div(province, start_date, project, map_click):
+    province = province if map_click is None else map_click['points'][0]['location']
     data, provinces = get_data(datetime.now().strftime('%Y%m%d%H'))
-    print(time.time() - start_t)
     data_filt = filter_province(data, filt=province)
     table = generate_table(data_filt)
     case_plot = generate_plot(data_filt, start=start_date, project=project)
     death_plot = generate_plot(data_filt, start=start_date, project=project, metric='Deaths')
-    return [case_plot, death_plot, table]
+    map_plot = generate_map(tuple(data.Province.tolist()), tuple(data['Total Cases'].tolist()), province)
+
+    return [case_plot, death_plot, table], map_plot
 
 
 if __name__ == '__main__':
-    app.run_server()
+    app.run_server(debug=True)
