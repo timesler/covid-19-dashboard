@@ -213,7 +213,7 @@ def generate_table(data):
 
 
 @lru_cache(1)
-def generate_map(provinces, total_cases, province='Canada'):
+def generate_map(provinces, total_cases):
     df = pd.DataFrame({'Province': provinces, 'Total Cases': total_cases})
     df = df.groupby('Province').agg({'Total Cases': max}).reset_index()
     df = df.loc[df.Province != 'Canada']
