@@ -5,7 +5,7 @@ import requests
 import dash
 import dash_core_components as dcc
 import dash_html_components as html
-from dash.dependencies import Input, Output
+from dash.dependencies import Input, Output, State
 import plotly.graph_objects as go
 import plotly.express as px
 import numpy as np
@@ -41,7 +41,9 @@ data, provinces = get_data(datetime.now().strftime('%Y%m%d%H'))
 print(time.time() - start_t)
 
 
-def filter_province(data, filt='Canada'):
+@lru_cache(20)
+def filter_province(hour_str, filt='Canada'):
+    data, _ = get_data(hour_str)
     filt = 'Canada' if filt is None else filt
     data = data.loc[data.Province == filt]
     data['New Cases'] = data['Total Cases'].diff()
@@ -344,19 +346,43 @@ app.layout = html.Div(
         Input('province-select', 'value'),
         Input('time-select', 'date'),
         Input('project-select', 'value'),
-        Input('map_graph', 'clickData'),
     ]
 )
-def update_output_div(province, start_date, project, map_click):
-    province = province if map_click is None else map_click['points'][0]['location']
-    data, provinces = get_data(datetime.now().strftime('%Y%m%d%H'))
-    data_filt = filter_province(data, filt=province)
+def update_vis(province, start_date, project):
+
+    timer_start = time.time()
+    data_filt = filter_province(datetime.now().strftime('%Y%m%d%H'), filt=province)
+    print(f'\nGet data: {time.time() - timer_start} seconds')
+    
+    timer_start = time.time()
     table = generate_table(data_filt)
+    print(f'Generate table: {time.time() - timer_start} seconds')
+    
+    timer_start = time.time()
     case_plot = generate_plot(data_filt, start=start_date, project=project)
     death_plot = generate_plot(data_filt, start=start_date, project=project, metric='Deaths')
+    print(f'Generate charts: {time.time() - timer_start} seconds')
+    
+    timer_start = time.time()
     map_plot = generate_map(tuple(data.Province.tolist()), tuple(data['Total Cases'].tolist()))
+    print(f'Generate map: {time.time() - timer_start} seconds')
+
 
     return [case_plot, death_plot, table], map_plot
+
+
+@app.callback(
+    Output('province-select', 'value'),
+    [
+        Input('map_graph', 'clickData'),
+    ],
+    [
+        State('province-select', 'value'),
+    ]
+)
+def update_dropdown(map_click, old_value):
+    value = old_value if map_click is None else map_click['points'][0]['location']
+    return value
 
 
 if __name__ == '__main__':
