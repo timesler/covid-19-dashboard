@@ -287,7 +287,7 @@ app.layout = html.Div(
         html.Img(
             id="logo",
             src="assets/xtract-logo.png",
-            style={'position': 'relative', 'top': '1.5%', 'left': '-6vw', 'width': '20%'}
+            style={'position': 'relative', 'top': '1.5%', 'left': '-6vw', 'width': 220}
         ),
         html.H2('COVID-19: Canada'),
         dcc.Dropdown(
