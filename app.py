@@ -161,7 +161,8 @@ def generate_plot(data, start, project=1, metric='Cases'):
                 height=500,
                 title=f'Total {metric}',
                 legend_title='<b>Click to hide</b>',
-                legend=dict(x=0.02, y=1, bgcolor="rgba(0,0,0,0)")
+                legend=dict(x=0.02, y=1, bgcolor="rgba(0,0,0,0)"),
+                margin={"r": 50, "t": 30, "l": 50, "b": 70},
             ),
         },
         animate=True,
@@ -177,7 +178,8 @@ def generate_plot(data, start, project=1, metric='Cases'):
                 height=500,
                 title=f'New {metric}',
                 legend_title='<b>Click to hide</b>',
-                legend=dict(x=0.02, y=1, bgcolor="rgba(0,0,0,0)")
+                legend=dict(x=0.02, y=1, bgcolor="rgba(0,0,0,0)"),
+                margin={"r": 50, "t": 30, "l": 50, "b": 70},
             ),
         },
         animate=True,
@@ -188,6 +190,7 @@ def generate_plot(data, start, project=1, metric='Cases'):
             html.Div([total_graph], className="six columns", style={'margin': 0, 'padding': 0}),
             html.Div([new_graph], className="six columns", style={'margin': 0, 'padding': 0})
         ],
+        style=dict(marginTop=20),
         className='row'
     )
 
@@ -236,7 +239,7 @@ def generate_map(provinces, total_cases):
         ],
         projection='orthographic',
         hover_name=df['Province'],
-        labels={'color':'Total cases'}
+        labels={'color':'Total cases'},
     )
 
     fig.data[0].hovertemplate = '<b>%{hovertext}</b><br><br>Total cases: %{z}<extra></extra>'
@@ -262,10 +265,15 @@ def generate_map(provinces, total_cases):
                 xref="paper",
                 yref="paper"
             )
-        ]
+        ],
+        coloraxis_showscale=False
     )
 
-    return dcc.Graph(figure=fig, style=dict(paddingTop=20, height=350, width=800, margin='auto'), id='map_graph')
+    return dcc.Graph(
+        figure=fig,
+        style=dict(paddingTop=20, width='55vw', minWidth=600, margin='auto'),
+        id='map_graph'
+    )
 
 
 app = dash.Dash(__name__)
@@ -346,7 +354,7 @@ def update_output_div(province, start_date, project, map_click):
     table = generate_table(data_filt)
     case_plot = generate_plot(data_filt, start=start_date, project=project)
     death_plot = generate_plot(data_filt, start=start_date, project=project, metric='Deaths')
-    map_plot = generate_map(tuple(data.Province.tolist()), tuple(data['Total Cases'].tolist()), province)
+    map_plot = generate_map(tuple(data.Province.tolist()), tuple(data['Total Cases'].tolist()))
 
     return [case_plot, death_plot, table], map_plot
 
