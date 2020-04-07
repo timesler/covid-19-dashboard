@@ -174,7 +174,7 @@ def generate_plot(data, start, project=1, metric='Cases'):
         figure={
             'data': traces_new,
             'layout': dict(
-                xaxis={'title': 'Date', 'range': [start, trend_dates.max()]},
+                xaxis={'title': 'Date', 'range': [start, trend_dates.max()], 'showgrid': True},
                 yaxis={'title': f'{metric}', 'range': [- y_max_new * 0.05, y_max_new * 1.05]},
                 hovermode='closest',
                 height=500,
