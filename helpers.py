@@ -36,19 +36,19 @@ def get_data(hour_str):
     data.columns = ['Province', 'Date', 'Total Deaths', 'Total Cases', 'Total Tests']
     data.sort_index(inplace=True)
 
-    provinces = data.Province.unique()
+    provinces_totals = data.groupby('Province').agg({'Total Cases': max}).reset_index()
 
-    return data, provinces
+    return data, provinces_totals
 
 
 @lru_cache(20)
 def filter_province(hour_str, filt='Canada'):
-    data, _ = get_data(hour_str)
+    data, provinces_totals = get_data(hour_str)
     filt = 'Canada' if filt is None else filt
     data = data.loc[data.Province == filt]
     data['New Cases'] = data['Total Cases'].diff()
     data['New Deaths'] = data['Total Deaths'].diff()
-    return data
+    return data, provinces_totals
 
 
 def exp_fun(x, a, b):
@@ -248,7 +248,6 @@ def generate_table(data):
 @lru_cache(1)
 def generate_map(provinces, total_cases):
     df = pd.DataFrame({'Province': provinces, 'Total Cases': total_cases})
-    df = df.groupby('Province').agg({'Total Cases': max}).reset_index()
     df = df.loc[df.Province != 'Canada']
 
     fig = px.choropleth(

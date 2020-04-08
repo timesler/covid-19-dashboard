@@ -27,14 +27,14 @@ app = dash.Dash(__name__)
 server = app.server
 
 # Get data
-data, provinces = get_data(datetime.now().strftime('%H'))
+data, province_totals = get_data(datetime.now().strftime('%H'))
 initial_start = (datetime.now() - timedelta(weeks=8)).strftime('%Y-%m-%d')
 
 
 def init_vis(province, start_date, project):
 
     timer_start = time.time()
-    data_filt = filter_province(datetime.now().strftime('%Y%m%d%H'), filt=province)
+    data_filt, province_totals = filter_province(datetime.now().strftime('%H'), filt=province)
     print(f'\nGet data: {time.time() - timer_start} seconds')
     
     timer_start = time.time()
@@ -45,12 +45,8 @@ def init_vis(province, start_date, project):
     case_plot, sig_fit = generate_plot(data_filt, start=start_date, project=project)
     death_plot, _ = generate_plot(data_filt, start=start_date, project=project, metric='Deaths', sig_fit=sig_fit)
     print(f'Generate charts: {time.time() - timer_start} seconds')
-    
-    timer_start = time.time()
-    map_plot = generate_map(tuple(data.Province.tolist()), tuple(data['Total Cases'].tolist()))
-    print(f'Generate map: {time.time() - timer_start} seconds')
 
-    return [case_plot, death_plot, table], map_plot
+    return [case_plot, death_plot, table], province_totals.to_dict('records')
 
 
 # Layout
@@ -64,7 +60,7 @@ heading_elem = html.H2('COVID-19: Canada')
 
 dropdown_elem = dcc.Dropdown(
     id='province-select',
-    options=[dict(label=p, value=p) for p in provinces],
+    options=[dict(label=p, value=p) for p in province_totals.Province.values],
     value='Canada',
     clearable=False,
     style=dict(marginBottom=20)
@@ -111,9 +107,17 @@ copyright_elem = html.Div(
     )
 )
 
-[case_plot, death_plot, table], map_plot = init_vis('Canada', initial_start, 1)
+[case_plot, death_plot, table], _ = init_vis('Canada', initial_start, 1)
 
-map_elem = html.Div([map_plot], id='map')
+map_elem = html.Div(
+    [
+        generate_map(
+            tuple(province_totals.Province.tolist()),
+            tuple(province_totals['Total Cases'].tolist())
+        )
+    ],
+    id='map'
+)
 
 vis_elem = html.Div([case_plot, death_plot, table], id='vis', style=dict(marginBottom=60))
 
@@ -127,6 +131,7 @@ app.layout = html.Div(
         vis_elem,
         # copyright_elem,
         html.Div(id='placeholder'),
+        dcc.Store('map-store'),
     ],
     style={'width': '86%', 'margin': 'auto'}
 )
@@ -136,7 +141,7 @@ app.layout = html.Div(
 @app.callback(
     [
         Output('vis', 'children'),
-        Output('map', 'children'),
+        Output('map-store', 'data'),
     ],
     [
         Input('province-select', 'value'),
@@ -151,16 +156,15 @@ def update_vis(province, start_date, project):
 
 
 app.clientside_callback(
-    """
-    function(map_click, old_value) {
-        var value = old_value;
-        if (map_click !== undefined) {
-            if (map_click['points'] !== undefined)
-                value = map_click['points'][0]['location'];
-        }
-        return value
-    }
-    """,
+    ClientsideFunction(namespace='clientside', function_name='update_map'),
+    Output('map-graph', 'figure'),
+    [Input('map-store', 'data')],
+    [State('map-graph', 'figure')]
+)
+
+
+app.clientside_callback(
+    ClientsideFunction(namespace='clientside', function_name='update_dropdown'),
     Output('province-select', 'value'),
     [Input('map-graph', 'clickData')],
     [State('province-select', 'value')]
