@@ -66,32 +66,44 @@ def fit_exponential(x, y):
 
 
 @lru_cache(64)
-def fit_sigmoid(x, y):
+def fit_sigmoid(x, y, popt=None):
+    if max(y) < 20:
+        return None
+
+    if popt is not None:
+        asymp = [np.log10(max(max(y), 10 ** popt[0] * 0.001)), np.log10(10 ** popt[0] * 0.15)]
+        slope = [popt[1] * 0.98, popt[1] * 1.02]
+        midpt = popt[2] + 6
+    else:
+        asymp = [min(np.log10(max(y)), 0.1), 6]
+        slope = [0.05, 0.9]
+        midpt = 10
+
+    x = list(x)[:-1]
+    y = list(y)[:-1]
+
     sses = []
     popts = []
-    for time_shift in range(60, 301, 60):
-        popt, _ = curve_fit(sig_fun, x, y, bounds=([0.1, 0.05, 10], [6, 0.9, time_shift]))
+    for time_shift in range(max(60, int(midpt)+1), 301, 60):
+        popt, _ = curve_fit(sig_fun, x, y, bounds=([asymp[0], slope[0], midpt], [asymp[1], slope[1], time_shift]))
         sses.append(((y - sig_fun(x, *popt)) ** 2).sum())
         popts.append(popt)
     popt = popts[np.argmin(sses)]
     if 10 ** popt[0] > 10 * max(y):
         return None
-    return lambda x: sig_fun(x, *popt)
+    print(popt)
+    return popt
 
 
-def generate_plot(data, start, project=1, metric='Cases'):
+def generate_plot(data, start, project=1, metric='Cases', sig_fit=None):
     start = datetime.strptime(start, '%Y-%m-%d')
 
     x = data.index.astype(np.int64) / 10e13
     x_min = x.min().copy()
-    x = x[:-1] - x_min
-    y = data[f'Total {metric}'][:-1]
+    x = x - x_min
+    y = data[f'Total {metric}']
 
-    trends = {
-        # 'Trendline (exponential)': fit_exponential(x, y),
-        'Trendline (logistic)': fit_sigmoid(tuple(x.tolist()), tuple(y.tolist()))
-    }
-    trends = {k: v for k, v in trends.items() if v is not None}
+    sig_fit = fit_sigmoid(tuple(x.tolist()), tuple(y.tolist()), sig_fit)
 
     trend_dates = pd.date_range(data.index.min(), data.index.max() + timedelta(days=project))
     trend_x = trend_dates.astype(np.int64) / 10e13
@@ -101,7 +113,6 @@ def generate_plot(data, start, project=1, metric='Cases'):
     traces_new = []
     y_max_total = -1
     y_max_new = -1
-
 
     traces_total.append(dict(
         x=data.index,
@@ -119,16 +130,14 @@ def generate_plot(data, start, project=1, metric='Cases'):
         x=data.index,
         y=data[f'New {metric}'],
         ids=[str(id) for id in range(len(data))],
-        # mode='lines+markers',
         opacity=0.7,
-        # marker=dict(size=10),
-        # line=dict(width=2),
         name=f'New {metric}'
     ))
     y_max_new = max(y_max_new, data[f'New {metric}'].max())
 
-    for series, fn in trends.items():
-        y = fn(trend_x)
+    if sig_fit is not None:
+        sig_fit = tuple(sig_fit.tolist())
+        y = sig_fun(trend_x, *sig_fit)
         y_new = np.array([0] + [y[i] - y[i-1] for i in range(1, len(y))])
 
         traces_total.append(dict(
@@ -138,7 +147,7 @@ def generate_plot(data, start, project=1, metric='Cases'):
             mode='lines',
             opacity=0.7,
             line=dict(width=3, dash='dash'),
-            name=series
+            name='Trendline (logistic)'
         ))
         y_max_total = max(y_max_total, y.max())
 
@@ -149,7 +158,7 @@ def generate_plot(data, start, project=1, metric='Cases'):
             mode='lines',
             opacity=0.7,
             line=dict(width=3, dash='dash'),
-            name=series
+            name='Trendline (logistic)'
         ))
         y_max_new = max(y_max_new, y_new.max())
     
@@ -187,13 +196,16 @@ def generate_plot(data, start, project=1, metric='Cases'):
         animate=True,
     )
 
-    return html.Div(
-        [
-            html.Div([total_graph], className="six columns", style={'margin': 0, 'padding': 0}),
-            html.Div([new_graph], className="six columns", style={'margin': 0, 'padding': 0})
-        ],
-        style=dict(marginTop=20),
-        className='row'
+    return (
+        html.Div(
+            [
+                html.Div([total_graph], className="six columns", style={'margin': 0, 'padding': 0}),
+                html.Div([new_graph], className="six columns", style={'margin': 0, 'padding': 0})
+            ],
+            style=dict(marginTop=20),
+            className='row'
+        ),
+        sig_fit
     )
 
 
@@ -354,8 +366,8 @@ def update_vis(province, start_date, project):
     print(f'Generate table: {time.time() - timer_start} seconds')
     
     timer_start = time.time()
-    case_plot = generate_plot(data_filt, start=start_date, project=project)
-    death_plot = generate_plot(data_filt, start=start_date, project=project, metric='Deaths')
+    case_plot, sig_fit = generate_plot(data_filt, start=start_date, project=project)
+    death_plot, _ = generate_plot(data_filt, start=start_date, project=project, metric='Deaths', sig_fit=sig_fit)
     print(f'Generate charts: {time.time() - timer_start} seconds')
     
     timer_start = time.time()
