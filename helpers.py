@@ -72,8 +72,8 @@ def fit_sigmoid(x, y, popt=None):
 
     if popt is not None:
         asymp = [np.log10(max(max(y), 10 ** popt[0] * 0.001)), np.log10(10 ** popt[0] * 0.15)]
-        slope = [popt[1] * 0.98, popt[1] * 1.02]
-        midpt = popt[2] + 6
+        slope = [popt[1] * 0.99, popt[1] * 1.01]
+        midpt = popt[2] + 5
     else:
         asymp = [min(np.log10(max(y)), 0.1), 6]
         slope = [0.05, 0.9]
@@ -89,7 +89,7 @@ def fit_sigmoid(x, y, popt=None):
         sses.append(((y - sig_fun(x, *popt)) ** 2).sum())
         popts.append(popt)
     popt = popts[np.argmin(sses)]
-    if 10 ** popt[0] > 10 * max(y):
+    if 10 ** popt[0] > 8 * max(y):
         return None
 
     return popt
@@ -97,8 +97,9 @@ def fit_sigmoid(x, y, popt=None):
 
 def generate_plot(data, start, project=1, metric='Cases', sig_fit=None):
     start = datetime.strptime(start, '%Y-%m-%d')
+    end = datetime.now() + timedelta(days=project)
 
-    x = data.index.astype(np.int64) / 10e13
+    x = data.index.astype(np.int64) / 1e9 / 60 / 1440
     x_min = x.min().copy()
     x = x - x_min
     y = data[f'Total {metric}']
@@ -106,7 +107,7 @@ def generate_plot(data, start, project=1, metric='Cases', sig_fit=None):
     sig_fit = fit_sigmoid(tuple(x.tolist()), tuple(y.tolist()), sig_fit)
 
     trend_dates = pd.date_range(data.index.min(), datetime.now() + timedelta(days=60))
-    trend_x = trend_dates.astype(np.int64) / 10e13
+    trend_x = trend_dates.astype(np.int64) / 1e9 / 60 / 1440
     trend_x = trend_x - x_min
 
     traces_total = []
@@ -149,7 +150,7 @@ def generate_plot(data, start, project=1, metric='Cases', sig_fit=None):
             line=dict(width=3, dash='dash'),
             name='Trendline (logistic)'
         ))
-        y_max_total = max(y_max_total, y.max())
+        y_max_total = max(y_max_total, y[trend_dates <= end].max())
 
         traces_new.append(dict(
             x=trend_dates,
@@ -160,14 +161,20 @@ def generate_plot(data, start, project=1, metric='Cases', sig_fit=None):
             line=dict(width=3, dash='dash'),
             name='Trendline (logistic)'
         ))
-        y_max_new = max(y_max_new, y_new.max())
+        y_max_new = max(y_max_new, y_new[trend_dates <= end].max())
     
     total_graph = dcc.Graph(
         figure={
             'data': traces_total,
             'layout': dict(
-                xaxis={'title': 'Date', 'range': [start, datetime.now() + timedelta(days=project)]},
-                yaxis={'title': f'{metric}', 'range': [- y_max_total * 0.05, y_max_total * 1.05]},
+                xaxis=dict(
+                    title='Date',
+                    range=[start, end]
+                ),
+                yaxis=dict(
+                    title=f'{metric}',
+                    range=[- y_max_total * 0.02, y_max_total * 1.02]
+                ),
                 hovermode='closest',
                 height=500,
                 title=f'Total {metric}',
@@ -175,9 +182,10 @@ def generate_plot(data, start, project=1, metric='Cases', sig_fit=None):
                 legend=dict(x=0.02, y=1, bgcolor="rgba(0,0,0,0)"),
                 margin={"r": 50, "t": 30, "l": 50, "b": 70},
                 dragmode=False,
+                transition={'duration': 250, 'easing': 'linear-in-out'}
             ),
         },
-        animate=True,
+        # animate=True,
         config=dict(displayModeBar=False),
         id=f'total-{metric.lower()}'
     )
@@ -186,18 +194,26 @@ def generate_plot(data, start, project=1, metric='Cases', sig_fit=None):
         figure={
             'data': traces_new,
             'layout': dict(
-                xaxis={'title': 'Date', 'range': [start, datetime.now() + timedelta(days=project)], 'showgrid': True},
-                yaxis={'title': f'{metric}', 'range': [- y_max_new * 0.05, y_max_new * 1.05]},
+                xaxis=dict(
+                    title='Date',
+                    range=[start, end],
+                    showgrid=True
+                ),
+                yaxis=dict(
+                    title=f'{metric}',
+                    range=[- y_max_new * 0.02, y_max_new * 1.02]
+                ),
                 hovermode='closest',
                 height=500,
                 title=f'New {metric}',
                 legend_title='<b>Click to hide</b>',
                 legend=dict(x=0.02, y=1, bgcolor="rgba(0,0,0,0)"),
-                margin={"r": 50, "t": 30, "l": 50, "b": 70},
+                margin={"r": 0, "t": 30, "l": 50, "b": 70},
                 dragmode=False,
+                transition={'duration': 250, 'easing': 'linear-in-out'}
             ),
         },
-        animate=True,
+        # animate=True,
         config=dict(displayModeBar=False),
         id=f'new-{metric.lower()}'
     )

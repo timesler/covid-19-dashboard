@@ -7,7 +7,7 @@ import dash
 import dash_core_components as dcc
 import dash_html_components as html
 import dash_table
-from dash.dependencies import Input, Output, State
+from dash.dependencies import Input, Output, State, ClientsideFunction
 import plotly.graph_objects as go
 import plotly.express as px
 import numpy as np
@@ -23,13 +23,37 @@ from helpers import (
     placeholder_graph
 )
 
-
-data, provinces = get_data(datetime.now().strftime('%H'))
-
 app = dash.Dash(__name__)
-
 server = app.server
 
+# Get data
+data, provinces = get_data(datetime.now().strftime('%H'))
+initial_start = (datetime.now() - timedelta(weeks=8)).strftime('%Y-%m-%d')
+
+
+def init_vis(province, start_date, project):
+
+    timer_start = time.time()
+    data_filt = filter_province(datetime.now().strftime('%Y%m%d%H'), filt=province)
+    print(f'\nGet data: {time.time() - timer_start} seconds')
+    
+    timer_start = time.time()
+    table = generate_table(data_filt)
+    print(f'Generate table: {time.time() - timer_start} seconds')
+    
+    timer_start = time.time()
+    case_plot, sig_fit = generate_plot(data_filt, start=start_date, project=project)
+    death_plot, _ = generate_plot(data_filt, start=start_date, project=project, metric='Deaths', sig_fit=sig_fit)
+    print(f'Generate charts: {time.time() - timer_start} seconds')
+    
+    timer_start = time.time()
+    map_plot = generate_map(tuple(data.Province.tolist()), tuple(data['Total Cases'].tolist()))
+    print(f'Generate map: {time.time() - timer_start} seconds')
+
+    return [case_plot, death_plot, table], map_plot
+
+
+# Layout
 logo_elem = html.Img(
     id="logo",
     src="assets/xtract-logo.png",
@@ -50,7 +74,7 @@ datepicker_elem = dcc.DatePickerSingle(
     id='time-select',
     min_date_allowed=data.index.min(),
     max_date_allowed=data.index.max() + timedelta(days=1),
-    date=(datetime.now() - timedelta(weeks=8)).strftime('%Y-%m-%d'),
+    date=initial_start,
     initial_visible_month=datetime.now() - timedelta(weeks=4),
     style=dict(marginLeft=5, marginRight=20)
 )
@@ -87,45 +111,11 @@ copyright_elem = html.Div(
     )
 )
 
-map_elem = html.Div([placeholder_graph('map-graph')], id='map')
+[case_plot, death_plot, table], map_plot = init_vis('Canada', initial_start, 1)
 
-cases_elem = html.Div(
-    [
-        html.Div(
-            [placeholder_graph('total-cases')],
-            className="six columns",
-            style=dict(margin=0, padding=0)
-        ),
-        html.Div(
-            [placeholder_graph('new-cases')],
-            className="six columns",
-            style=dict(margin=0, padding=0)
-        )
-    ],
-    style=dict(marginTop=20),
-    className='row'
-)
+map_elem = html.Div([map_plot], id='map')
 
-deaths_elem = html.Div(
-    [
-        html.Div(
-            [placeholder_graph('total-deaths')],
-            className="six columns",
-            style=dict(margin=0, padding=0)
-        ),
-        html.Div(
-            [placeholder_graph('new-deaths')],
-            className="six columns",
-            style=dict(margin=0, padding=0)
-        )
-    ],
-    style=dict(marginTop=20),
-    className='row'
-)
-
-table_elem = html.Details(id='table')
-
-vis_elem = html.Div([cases_elem, deaths_elem, table_elem], id='vis')
+vis_elem = html.Div([case_plot, death_plot, table], id='vis', style=dict(marginBottom=60))
 
 app.layout = html.Div(
     children=[
@@ -136,12 +126,13 @@ app.layout = html.Div(
         input_elem,
         vis_elem,
         # copyright_elem,
-        html.Div(id='placeholder')
+        html.Div(id='placeholder'),
     ],
     style={'width': '86%', 'margin': 'auto'}
 )
 
 
+# Callbacks
 @app.callback(
     [
         Output('vis', 'children'),
@@ -149,31 +140,14 @@ app.layout = html.Div(
     ],
     [
         Input('province-select', 'value'),
-        Input('time-select', 'date'),
-        Input('project-select', 'value')
+    ],
+    [
+        State('time-select', 'date'),
+        State('project-select', 'value'),
     ]
 )
 def update_vis(province, start_date, project):
-
-    timer_start = time.time()
-    data_filt = filter_province(datetime.now().strftime('%Y%m%d%H'), filt=province)
-    print(f'\nGet data: {time.time() - timer_start} seconds')
-    
-    timer_start = time.time()
-    table = generate_table(data_filt)
-    print(f'Generate table: {time.time() - timer_start} seconds')
-    
-    timer_start = time.time()
-    case_plot, sig_fit = generate_plot(data_filt, start=start_date, project=project)
-    death_plot, _ = generate_plot(data_filt, start=start_date, project=project, metric='Deaths', sig_fit=sig_fit)
-    print(f'Generate charts: {time.time() - timer_start} seconds')
-    
-    timer_start = time.time()
-    map_plot = generate_map(tuple(data.Province.tolist()), tuple(data['Total Cases'].tolist()))
-    print(f'Generate map: {time.time() - timer_start} seconds')
-
-
-    return [case_plot, death_plot, table], map_plot
+    return init_vis(province, start_date, project)
 
 
 app.clientside_callback(
@@ -192,69 +166,13 @@ app.clientside_callback(
     [State('province-select', 'value')]
 )
 
-
-# range_callback = """
-# function(value, fig) {
-#     if (fig === undefined) {
-#         return fig
-#     }
-
-#     // Get new upper bound for x
-#     var max_x = new Date();
-#     max_x.setDate(max_x.getDate() + value);
-
-#     // Get max y for which x is <= max_x
-#     var x = fig['data'][1]['x'];
-#     var y = fig['data'][1]['y'];
-#     var max_y = -1000000;
-#     for (var i = 0; i < x.length; i++) {
-#         var x_date = new Date(x[i]);
-#         if (x_date < max_x) {
-#             if (y[i] > max_y) max_y = y[i];
-#         }
-#     }
-
-#     max_y = Math.max(max_y, Math.max(...fig['data'][0]['y'])) * 1.05
-
-#     max_x = max_x
-#         .toLocaleString('en-us', {year: 'numeric', month: '2-digit', day: '2-digit'})
-#         .replace(/(\d+)\/(\d+)\/(\d+)/, '$3-$1-$2T00:00:00');
-    
-#     fig['layout']['xaxis']['range'] = [
-#         fig['layout']['xaxis']['range'][0], max_x
-#     ];
-#     fig['layout']['yaxis']['range'] = [
-#         fig['layout']['yaxis']['range'][0], max_y
-#     ];
-
-#     return fig
-# }
-# """
-
-# app.clientside_callback(
-#     range_callback,
-#     Output('total-cases', 'figure'),
-#     [Input('project-select', 'value')],
-#     [State('total-cases', 'figure')]
-# )
-# app.clientside_callback(
-#     range_callback,
-#     Output('new-cases', 'figure'),
-#     [Input('project-select', 'value')],
-#     [State('new-cases', 'figure')]
-# )
-# app.clientside_callback(
-#     range_callback,
-#     Output('total-deaths', 'figure'),
-#     [Input('project-select', 'value')],
-#     [State('total-deaths', 'figure')]
-# )
-# app.clientside_callback(
-#     range_callback,
-#     Output('new-deaths', 'figure'),
-#     [Input('project-select', 'value')],
-#     [State('new-deaths', 'figure')]
-# )
+for id_name in ['total-cases', 'new-cases', 'total-deaths', 'new-deaths']:
+    app.clientside_callback(
+        ClientsideFunction(namespace='clientside', function_name='update_range'),
+        Output(id_name, 'figure'),
+        [Input('project-select', 'value'), Input('time-select', 'date')],
+        [State(id_name, 'figure')]
+    )
 
 
 if __name__ == '__main__':
