@@ -178,6 +178,7 @@ def generate_plot(data, start, project=1, metric='Cases', sig_fit=None):
             ),
         },
         animate=True,
+        config=dict(displayModeBar=False),
         id=f'total-{metric.lower()}'
     )
 
@@ -197,6 +198,7 @@ def generate_plot(data, start, project=1, metric='Cases', sig_fit=None):
             ),
         },
         animate=True,
+        config=dict(displayModeBar=False),
         id=f'new-{metric.lower()}'
     )
 
