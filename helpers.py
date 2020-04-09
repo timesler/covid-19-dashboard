@@ -59,17 +59,21 @@ def sig_fun(x, a, b, c):
     return 10 ** a / (1 + np.exp(- b * (x - c)))
 
 
+def gom_fun(x, a, b, c):
+    return 10 ** a * np.exp(-np.exp(- b * (x - c)))
+
+
 @lru_cache(64)
-def fit_exponential(x, y):
+def fit_exponential(x, y, popt=None):
     popt, _ = curve_fit(exp_fun, x, y, bounds=([0.01, 0.01], [0.4, 500]))
-    return lambda x: exp_fun(x, *popt)
+    return popt
 
 
 @lru_cache(64)
-def fit_sigmoid(x, y, popt=None):
+def fit_sigmoid(x, y, fn=gom_fun, popt=None):
     if max(y) < 20:
         return None
-
+    
     if popt is not None:
         asymp = [max(np.log10(max(y)), popt[0] * 0.001), np.log10(10 ** popt[0] * 0.15)]
         slope = [popt[1] * 0.99, popt[1] * 1.01]
@@ -82,17 +86,17 @@ def fit_sigmoid(x, y, popt=None):
     x = np.array(x)[:-1]
     y = np.array(y)[:-1]
 
-    sigma = np.ones(len(x)) * (1 - x / x.max()) * 19 + 1
-
+    sigma = np.ones(len(x)) * (1 - x / x.max()) * 10 + 1
+    
     sses = []
     popts = []
     for time_shift in range(max(60, int(midpt)+1), 301, 60):
         popt, _ = curve_fit(
-            sig_fun, x, y,
+            fn, x, y,
             bounds=([asymp[0], slope[0], midpt], [asymp[1], slope[1], time_shift]),
             sigma=sigma
         )
-        sses.append(((y - sig_fun(x, *popt)) ** 2).sum())
+        sses.append(((y - fn(x, *popt)) ** 2).sum())
         popts.append(popt)
     popt = popts[np.argmin(sses)]
     if 10 ** popt[0] > 8 * max(y):
@@ -110,7 +114,8 @@ def generate_plot(data, start, project=1, metric='Cases', sig_fit=None):
     x = x - x_min
     y = data[f'Total {metric}']
 
-    sig_fit = fit_sigmoid(tuple(x.tolist()), tuple(y.tolist()), sig_fit)
+    fn = gom_fun
+    sig_fit = fit_sigmoid(tuple(x.tolist()), tuple(y.tolist()), fn=fn, popt=sig_fit)
 
     trend_dates = pd.date_range(data.index.min(), datetime.now() + timedelta(days=60))
     trend_x = trend_dates.astype(np.int64) / 1e9 / 60 / 1440
@@ -144,7 +149,7 @@ def generate_plot(data, start, project=1, metric='Cases', sig_fit=None):
 
     if sig_fit is not None:
         sig_fit = tuple(sig_fit.tolist())
-        y = sig_fun(trend_x, *sig_fit)
+        y = fn(trend_x, *sig_fit)
         y_new = np.array([0] + [y[i] - y[i-1] for i in range(1, len(y))])
 
         traces_total.append(dict(
@@ -154,7 +159,7 @@ def generate_plot(data, start, project=1, metric='Cases', sig_fit=None):
             mode='lines',
             opacity=0.7,
             line=dict(width=3, dash='dash'),
-            name='Trendline (logistic)'
+            name='Trendline (Gompertz)'
         ))
         y_max_total = max(y_max_total, y[trend_dates <= end].max())
 
@@ -165,7 +170,7 @@ def generate_plot(data, start, project=1, metric='Cases', sig_fit=None):
             mode='lines',
             opacity=0.7,
             line=dict(width=3, dash='dash'),
-            name='Trendline (logistic)'
+            name='Trendline (Gompertz)'
         ))
         y_max_new = max(y_max_new, y_new[trend_dates <= end].max())
     

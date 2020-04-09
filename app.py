@@ -81,8 +81,8 @@ radio_elem = dcc.RadioItems(
         dict(label='1 day', value=1),
         dict(label='1 week', value=7),
         dict(label='2 weeks', value=14),
+        dict(label='3 weeks', value=21),
         dict(label='1 month', value=30),
-        dict(label='2 months', value=60),
     ],
     value=1,
     style=dict(display='inline-block', marginLeft=5)
