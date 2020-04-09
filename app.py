@@ -107,7 +107,7 @@ copyright_elem = html.Div(
     )
 )
 
-[case_plot, death_plot, table], _ = init_vis('Canada', initial_start, 1)
+vis_plots, _ = init_vis('Canada', initial_start, 1)
 
 map_elem = html.Div(
     [
@@ -119,7 +119,7 @@ map_elem = html.Div(
     id='map'
 )
 
-vis_elem = html.Div([case_plot, death_plot, table], id='vis', style=dict(marginBottom=60))
+vis_elem = html.Div(vis_plots, id='vis', style=dict(marginBottom=60))
 
 app.layout = html.Div(
     children=[

@@ -71,21 +71,27 @@ def fit_sigmoid(x, y, popt=None):
         return None
 
     if popt is not None:
-        asymp = [np.log10(max(max(y), 10 ** popt[0] * 0.001)), np.log10(10 ** popt[0] * 0.15)]
+        asymp = [max(np.log10(max(y)), popt[0] * 0.001), np.log10(10 ** popt[0] * 0.15)]
         slope = [popt[1] * 0.99, popt[1] * 1.01]
-        midpt = popt[2] + 5
+        midpt = popt[2] + 10
     else:
-        asymp = [min(np.log10(max(y)), 0.1), 6]
+        asymp = [max(np.log10(max(y)), 0.1), 6]
         slope = [0.05, 0.9]
         midpt = 10
 
-    x = list(x)[:-1]
-    y = list(y)[:-1]
+    x = np.array(x)[:-1]
+    y = np.array(y)[:-1]
+
+    sigma = np.ones(len(x)) * (1 - x / x.max()) * 19 + 1
 
     sses = []
     popts = []
     for time_shift in range(max(60, int(midpt)+1), 301, 60):
-        popt, _ = curve_fit(sig_fun, x, y, bounds=([asymp[0], slope[0], midpt], [asymp[1], slope[1], time_shift]))
+        popt, _ = curve_fit(
+            sig_fun, x, y,
+            bounds=([asymp[0], slope[0], midpt], [asymp[1], slope[1], time_shift]),
+            sigma=sigma
+        )
         sses.append(((y - sig_fun(x, *popt)) ** 2).sum())
         popts.append(popt)
     popt = popts[np.argmin(sses)]

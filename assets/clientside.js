@@ -12,13 +12,15 @@ window.dash_clientside = Object.assign({}, window.dash_clientside, {
             max_x.setDate(max_x.getDate() + value);
 
             // Get max y for which x is <= max_x
-            var x = fig_in.data[1].x;
-            var y = fig_in.data[1].y;
             var max_y = -1000000;
-            for (var i = 0; i < x.length; i++) {
-                var x_date = new Date(x[i]);
-                if (x_date < max_x) {
-                    if (y[i] > max_y) max_y = y[i];
+            if (fig_in.data.length > 1) {
+                var x = fig_in.data[1].x;
+                var y = fig_in.data[1].y;
+                for (var i = 0; i < x.length; i++) {
+                    var x_date = new Date(x[i]);
+                    if (x_date < max_x) {
+                        if (y[i] > max_y) max_y = y[i];
+                    }
                 }
             }
 
