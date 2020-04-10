@@ -1,3 +1,4 @@
+import os
 from functools import lru_cache
 import time
 import requests
@@ -14,9 +15,24 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import curve_fit
 
+COUNTRY = os.environ.get('COUNTRY', 'US')
 
-@lru_cache(1)
-def get_geojson():
+LAT_RANGES = {
+    'Canada': [40, 83],
+    'US': [25, 55]
+}
+
+LON_RANGES = {
+    'Canada': [-125, -54],
+    'US': [-120, -73]
+}
+
+PROVINCE_NAME = {
+    'Canada': 'Province',
+    'US': 'State'
+}
+
+def get_geojson_canada():
     response = requests.get('https://raw.githubusercontent.com/codeforamerica/click_that_hood/master/public/data/canada.geojson')
     geojson = response.json()
     for i, gj in enumerate(geojson['features']):
@@ -26,25 +42,83 @@ def get_geojson():
     return geojson
 
 
+def get_geojson_us():
+    response = requests.get('https://raw.githubusercontent.com/codeforamerica/click_that_hood/master/public/data/united-states.geojson')
+    geojson = response.json()
+    return geojson
+
+
+GEO_FNS = {
+    'Canada': get_geojson_canada,
+    'US': get_geojson_us,
+}
+
+
 @lru_cache(1)
-def get_data(hour_str):
+def get_geojson():
+    return GEO_FNS[COUNTRY]()
+
+
+def get_data_canada():
     data = pd.read_csv('https://health-infobase.canada.ca/src/data/covidLive/covid19.csv')
     data = data[['prname', 'date', 'numdeaths', 'numtotal', 'numtested']]
+
     data['date_index'] = pd.to_datetime(data.date, format='%d-%m-%Y')
     data.date = data.date_index.dt.strftime('%Y-%m-%d')
     data.set_index('date_index', inplace=True)
     data.columns = ['Province', 'Date', 'Total Deaths', 'Total Cases', 'Total Tests']
     data.sort_index(inplace=True)
 
-    provinces_totals = data.groupby('Province').agg({'Total Cases': max}).reset_index()
+    provinces_totals = (
+        data.groupby('Province')
+            .agg({'Total Cases': max})
+            .reset_index()
+            .sort_values('Total Cases', ascending=False)
+    )
 
     return data, provinces_totals
 
 
+def get_data_us():
+    data = pd.read_csv('https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-states.csv')
+    data = data[['state', 'date', 'deaths', 'cases']]
+
+    data_us = data.groupby('date').agg({'deaths': sum, 'cases': sum}).reset_index()
+    data_us['state'] = 'US'
+
+    data = pd.concat((data, data_us))
+
+    data['date_index'] = pd.to_datetime(data.date, format='%Y-%m-%d')
+    data.date = data.date_index.dt.strftime('%Y-%m-%d')
+    data.set_index('date_index', inplace=True)
+    data.columns = ['Total Cases', 'Date', 'Total Deaths', 'Province']
+    data.sort_index(inplace=True)
+
+    provinces_totals = (
+        data.groupby('Province')
+            .agg({'Total Cases': max})
+            .reset_index()
+            .sort_values('Total Cases', ascending=False)
+    )
+
+    return data, provinces_totals
+
+
+DATA_FNS = {
+    'Canada': get_data_canada,
+    'US': get_data_us,
+}
+
+
+@lru_cache(1)
+def get_data(hour_str):
+    return DATA_FNS[COUNTRY]()
+
+
 @lru_cache(20)
-def filter_province(hour_str, filt='Canada'):
+def filter_province(hour_str, filt=COUNTRY):
     data, provinces_totals = get_data(hour_str)
-    filt = 'Canada' if filt is None else filt
+    filt = COUNTRY if filt is None else filt
     data = data.loc[data.Province == filt]
     data['New Cases'] = data['Total Cases'].diff()
     data['New Deaths'] = data['Total Deaths'].diff()
@@ -71,15 +145,17 @@ def fit_exponential(x, y, popt=None):
 
 @lru_cache(64)
 def fit_sigmoid(x, y, fn=gom_fun, popt=None):
+    if not len(y) > 0:
+        return None
     if max(y) < 20:
         return None
-    
+
     if popt is not None:
         asymp = [max(np.log10(max(y)), popt[0] * 0.001), np.log10(10 ** popt[0] * 0.15)]
-        slope = [popt[1] * 0.99, popt[1] * 1.01]
+        slope = [popt[1] * 0.9, popt[1] * 1.1]
         midpt = popt[2] + 10
     else:
-        asymp = [max(np.log10(max(y)), 0.1), 6]
+        asymp = [max(np.log10(max(y)), 0.1), 8]
         slope = [0.05, 0.9]
         midpt = 10
 
@@ -99,6 +175,7 @@ def fit_sigmoid(x, y, fn=gom_fun, popt=None):
         sses.append(((y - fn(x, *popt)) ** 2).sum())
         popts.append(popt)
     popt = popts[np.argmin(sses)]
+
     if 10 ** popt[0] > 8 * max(y):
         return None
 
@@ -110,7 +187,7 @@ def generate_plot(data, start, project=1, metric='Cases', sig_fit=None):
     end = datetime.now() + timedelta(days=project)
 
     x = data.index.astype(np.int64) / 1e9 / 60 / 1440
-    x_min = x.min().copy()
+    x_min = x.min()
     x = x - x_min
     y = data[f'Total {metric}']
 
@@ -243,6 +320,8 @@ def generate_plot(data, start, project=1, metric='Cases', sig_fit=None):
 
 
 def generate_table(data):
+    data[PROVINCE_NAME[COUNTRY]] = data.Province
+    data = data.drop(columns='Province')
     table = dash_table.DataTable(
         columns=[{"name": i, "id": i} for i in data.columns],
         data=data.to_dict('records'),
@@ -259,10 +338,12 @@ def generate_table(data):
 @lru_cache(1)
 def generate_map(provinces, total_cases):
     df = pd.DataFrame({'Province': provinces, 'Total Cases': total_cases})
-    df = df.loc[df.Province != 'Canada']
+    df = df.loc[df.Province != COUNTRY]
+
+    geojson = get_geojson()
 
     fig = px.choropleth(
-        geojson=get_geojson(), 
+        geojson=geojson, 
         locations=df['Province'],
         color=df['Total Cases'],
         featureidkey="properties.name",
@@ -285,20 +366,20 @@ def generate_map(provinces, total_cases):
     fig.data[0].hovertemplate = '<b>%{hovertext}</b><br><br>Total cases: %{z}<extra></extra>'
 
     fig.update_geos(
-        lataxis_range=[40, 83],
-        lonaxis_range=[-125, -54],
+        lataxis_range=LAT_RANGES[COUNTRY],
+        lonaxis_range=LON_RANGES[COUNTRY],
         projection_rotation=dict(lat=30),
         visible=False
     )
     
     fig.update_layout(
-        title=dict(text='Total Cases By Province', y=0.9, x=0),
+        title=dict(text=f'Total Cases By {PROVINCE_NAME[COUNTRY]}', y=0.95, x=0),
         margin={"r": 0, "t": 0, "l": 0, "b": 0},
         dragmode=False,
         annotations=[
             dict(
                 x=0,
-                y=0.85,
+                y=0.9,
                 showarrow=False,
                 text="Select province to filter charts",
                 xref="paper",

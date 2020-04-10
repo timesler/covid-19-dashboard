@@ -1,3 +1,4 @@
+import os
 from functools import lru_cache
 import time
 import requests
@@ -25,6 +26,8 @@ from helpers import (
 
 app = dash.Dash(__name__)
 server = app.server
+
+COUNTRY = os.environ.get('COUNTRY', 'US')
 
 # Get data
 data, province_totals = get_data(datetime.now().strftime('%H'))
@@ -56,12 +59,12 @@ logo_elem = html.Img(
     style=dict(position='relative', top='1.5%', left='-6vw', width=220)
 )
 
-heading_elem = html.H2('COVID-19: Canada')
+heading_elem = html.H2(f'COVID-19: {COUNTRY}')
 
 dropdown_elem = dcc.Dropdown(
     id='province-select',
     options=[dict(label=p, value=p) for p in province_totals.Province.values],
-    value='Canada',
+    value=COUNTRY,
     clearable=False,
     style=dict(marginBottom=20)
 )
@@ -107,7 +110,7 @@ copyright_elem = html.Div(
     )
 )
 
-vis_plots, _ = init_vis('Canada', initial_start, 1)
+vis_plots, _ = init_vis(COUNTRY, initial_start, 1)
 
 map_elem = html.Div(
     [
