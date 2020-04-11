@@ -22,13 +22,18 @@ from helpers import (
     generate_plot,
     generate_map,
     get_data,
-    placeholder_graph
+    placeholder_graph,
+    PROVINCE_NAME
 )
 
-app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
+app = dash.Dash(
+    __name__,
+    external_stylesheets=[dbc.themes.BOOTSTRAP],
+    meta_tags=[dict(name="viewport", content="width=device-width, initial-scale=1")]
+)
 server = app.server
 
-COUNTRY = os.environ.get('COUNTRY', 'US')
+COUNTRY = os.environ.get('COUNTRY', 'Canada')
 
 # Get data
 data, province_totals = get_data(datetime.now().strftime('%H'))
@@ -65,7 +70,7 @@ map_elem = dbc.Col(
     ],
     id='map',
     md=dict(offset=1, size=10),
-    lg=dict(offset=2, size=8)
+    lg=dict(offset=2, size=8),
 )
 
 dropdown_elem = dcc.Dropdown(
@@ -97,7 +102,17 @@ radio_elem = dbc.RadioItems(
 )
 
 input_elem = html.Div([
-    dbc.Form([dbc.Col([dbc.FormGroup(dropdown_elem, className='m-2')], width='True')]),
+    dbc.Form(
+        [
+            dbc.FormGroup(
+                [
+                    dbc.Label(f'Select {PROVINCE_NAME[COUNTRY].lower()}:'),
+                    dbc.Col([dropdown_elem], width='True'),
+                ],
+                className='m-2',
+            )
+        ]
+    ),
     dbc.Form(
         [
             dbc.FormGroup(
@@ -115,7 +130,8 @@ input_elem = html.Div([
                 className='m-2',
             ),
         ],
-        inline=True
+        inline=True,
+        className='mb-3'
     )
 ])
 
@@ -123,16 +139,16 @@ case_graphs, death_graphs, table, _ = init_vis(COUNTRY, initial_start, 1)
 
 cases_elem = dbc.Row(
     [
-        dbc.Col(case_graphs[0], id='total-cases-div'),
-        dbc.Col(case_graphs[1], id='new-cases-div')
+        dbc.Col(case_graphs[0], id='total-cases-div', sm=dict(size=12), lg=dict(size=6)),
+        dbc.Col(case_graphs[1], id='new-cases-div', sm=dict(size=12), lg=dict(size=6))
     ],
-    className='p-3'
+    className='p-2'
 )
 
 deaths_elem = dbc.Row(
     [
-        dbc.Col(death_graphs[0], id='total-deaths-div'),
-        dbc.Col(death_graphs[1], id='new-deaths-div')
+        dbc.Col(death_graphs[0], id='total-deaths-div', sm=dict(size=12), lg=dict(size=6)),
+        dbc.Col(death_graphs[1], id='new-deaths-div', sm=dict(size=12), lg=dict(size=6))
     ],
     className='p-2'
 )
@@ -145,7 +161,7 @@ table_elem = html.Details(
     className='py-4',
 )
 
-app.layout = dbc.Container(
+app.layout = html.Div(
     children=[
         heading_elem,
         map_elem,
@@ -155,6 +171,7 @@ app.layout = dbc.Container(
         table_elem,
         dcc.Store('map-store'),
     ],
+    className='container'
 )
 
 
@@ -215,4 +232,4 @@ for id_name in ['total-cases', 'new-cases', 'total-deaths', 'new-deaths']:
 
 
 if __name__ == '__main__':
-    app.run_server(debug=True)
+    app.run_server(debug=True, host='0.0.0.0')

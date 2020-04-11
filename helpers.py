@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import curve_fit
 
-COUNTRY = os.environ.get('COUNTRY', 'US')
+COUNTRY = os.environ.get('COUNTRY', 'Canada')
 
 LAT_RANGES = {
     'Canada': [40, 83],
@@ -283,19 +283,19 @@ def generate_plot(data, start, project=1, metric='Cases', sig_fit=None):
             'data': traces_total,
             'layout': dict(
                 xaxis=dict(
-                    title='Date',
+                    # title='Date',
                     range=[start, end]
                 ),
                 yaxis=dict(
-                    title=f'{metric}',
+                    # title=f'{metric}',
                     range=[- y_max_total * 0.02, y_max_total * 1.02]
                 ),
                 hovermode='closest',
-                height=500,
+                height=450,
                 title=f'Total {metric}',
                 legend_title='<b>Click to hide</b>',
                 legend=dict(x=0.02, y=1, bgcolor="rgba(0,0,0,0)"),
-                margin={"r": 50, "t": 30, "l": 50, "b": 70},
+                margin={"r": 10, "t": 30, "l": 30, "b": 70},
                 dragmode=False,
                 transition={'duration': 250, 'easing': 'linear-in-out'}
             ),
@@ -310,20 +310,20 @@ def generate_plot(data, start, project=1, metric='Cases', sig_fit=None):
             'data': traces_new,
             'layout': dict(
                 xaxis=dict(
-                    title='Date',
+                    # title='Date',
                     range=[start, end],
                     showgrid=True
                 ),
                 yaxis=dict(
-                    title=f'{metric}',
+                    # title=f'{metric}',
                     range=[- y_max_new * 0.02, y_max_new * 1.02]
                 ),
                 hovermode='closest',
-                height=500,
+                height=450,
                 title=f'New {metric}',
                 legend_title='<b>Click to hide</b>',
                 legend=dict(x=0.02, y=1, bgcolor="rgba(0,0,0,0)"),
-                margin={"r": 0, "t": 30, "l": 50, "b": 70},
+                margin={"r": 10, "t": 30, "l": 30, "b": 70},
                 dragmode=False,
                 transition={'duration': 250, 'easing': 'linear-in-out'}
             ),
@@ -405,8 +405,9 @@ def generate_map(provinces, total_cases):
 
     return dcc.Graph(
         figure=fig,
-        # style=dict(padding=20, width='40vw', minWidth=400, margin='auto'),
-        id='map-graph'
+        id='map-graph',
+        config=dict(displayModeBar=False),
+        style=dict(height='100%')
     )
 
 
