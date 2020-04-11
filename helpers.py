@@ -59,6 +59,33 @@ def get_geojson():
     return GEO_FNS[COUNTRY]()
 
 
+# TODO: finish global data function
+# import pytz
+# from tzwhere import tzwhere
+
+# data = pd.read_csv(
+#     'https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/'
+#     'csse_covid_19_time_series/time_series_covid19_confirmed_global.csv'
+# )
+# data = data.set_index(['Country/Region', 'Province/State'])
+
+# def get_tz(x):
+#     try:
+#         return pytz.timezone(tzwhere.tzNameAt(*x.values, forceTZ=True))
+#     except Exception as e:
+#         print(x, x.index)
+#         raise e
+
+# coords = data[['Lat', 'Long']]
+# tzwhere = tzwhere.tzwhere(forceTZ=True)
+# coords['tz'] = coords.apply(get_tz, axis=1)
+
+# data = data.drop(columns=['Lat', 'Long'])
+# data = data.transpose()
+# data['date_index'] = pd.to_datetime(data.index)
+# data = data.set_index('date_index')
+
+
 def get_data_canada():
     data = pd.read_csv('https://health-infobase.canada.ca/src/data/covidLive/covid19.csv')
     data = data[['prname', 'date', 'numdeaths', 'numtotal', 'numtested']]
@@ -306,17 +333,7 @@ def generate_plot(data, start, project=1, metric='Cases', sig_fit=None):
         id=f'new-{metric.lower()}'
     )
 
-    return (
-        html.Div(
-            [
-                html.Div([total_graph], className="six columns", style=dict(margin=0, padding=0)),
-                html.Div([new_graph], className="six columns", style=dict(margin=0, padding=0))
-            ],
-            style=dict(marginTop=20),
-            className='row'
-        ),
-        sig_fit
-    )
+    return (total_graph, new_graph), sig_fit
 
 
 def generate_table(data):
@@ -329,10 +346,7 @@ def generate_table(data):
         style_as_list_view=True,
         style_cell={'textAlign': 'center'}
     )
-    return html.Details([
-        html.Summary('Expand for tabular data'),
-        html.Div([table], style={'width': '80%', 'marginLeft': '10%', 'marginRight': '10%', 'marginTop': 30}),
-    ])
+    return table
 
 
 @lru_cache(1)
@@ -391,7 +405,7 @@ def generate_map(provinces, total_cases):
 
     return dcc.Graph(
         figure=fig,
-        style=dict(padding=20, width='40vw', minWidth=400, margin='auto'),
+        # style=dict(padding=20, width='40vw', minWidth=400, margin='auto'),
         id='map-graph'
     )
 

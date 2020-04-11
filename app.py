@@ -9,6 +9,7 @@ import dash_core_components as dcc
 import dash_html_components as html
 import dash_table
 from dash.dependencies import Input, Output, State, ClientsideFunction
+import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
 import plotly.express as px
 import numpy as np
@@ -24,7 +25,7 @@ from helpers import (
     placeholder_graph
 )
 
-app = dash.Dash(__name__)
+app = dash.Dash(external_stylesheets=[dbc.themes.BOOTSTRAP])
 server = app.server
 
 COUNTRY = os.environ.get('COUNTRY', 'US')
@@ -45,28 +46,33 @@ def init_vis(province, start_date, project):
     print(f'Generate table: {time.time() - timer_start} seconds')
     
     timer_start = time.time()
-    case_plot, sig_fit = generate_plot(data_filt, start=start_date, project=project)
-    death_plot, _ = generate_plot(data_filt, start=start_date, project=project, metric='Deaths', sig_fit=sig_fit)
+    case_graphs, sig_fit = generate_plot(data_filt, start=start_date, project=project)
+    death_graphs, _ = generate_plot(data_filt, start=start_date, project=project, metric='Deaths', sig_fit=sig_fit)
     print(f'Generate charts: {time.time() - timer_start} seconds')
 
-    return [case_plot, death_plot, table], province_totals.to_dict('records')
+    return case_graphs, death_graphs, table, province_totals.to_dict('records')
 
 
 # Layout
-logo_elem = html.Img(
-    id="logo",
-    src="assets/xtract-logo.png",
-    style=dict(position='relative', top='1.5%', left='-6vw', width=220)
-)
+heading_elem = html.H2(f'COVID-19: {COUNTRY}', className='my-3')
 
-heading_elem = html.H2(f'COVID-19: {COUNTRY}')
+map_elem = dbc.Col(
+    [
+        generate_map(
+            tuple(province_totals.Province.tolist()),
+            tuple(province_totals['Total Cases'].tolist())
+        )
+    ],
+    id='map',
+    md=dict(offset=1, size=10),
+    lg=dict(offset=2, size=8)
+)
 
 dropdown_elem = dcc.Dropdown(
     id='province-select',
     options=[dict(label=p, value=p) for p in province_totals.Province.values],
     value=COUNTRY,
     clearable=False,
-    style=dict(marginBottom=20)
 )
 
 datepicker_elem = dcc.DatePickerSingle(
@@ -75,10 +81,9 @@ datepicker_elem = dcc.DatePickerSingle(
     max_date_allowed=data.index.max() + timedelta(days=1),
     date=initial_start,
     initial_visible_month=datetime.now() - timedelta(weeks=4),
-    style=dict(marginLeft=5, marginRight=20)
 )
 
-radio_elem = dcc.RadioItems(
+radio_elem = dbc.RadioItems(
     id='project-select',
     options=[
         dict(label='1 day', value=1),
@@ -88,62 +93,79 @@ radio_elem = dcc.RadioItems(
         dict(label='1 month', value=30),
     ],
     value=1,
-    style=dict(display='inline-block', marginLeft=5)
+    inline=True
 )
 
 input_elem = html.Div([
-    'Show from:',
-    datepicker_elem,
-    'Extrapolate growth:',
-    radio_elem,
+    dbc.Form([dbc.Col([dbc.FormGroup(dropdown_elem, className='m-2')], width='True')]),
+    dbc.Form(
+        [
+            dbc.FormGroup(
+                [
+                    dbc.Label('Show from:', className='mr-2'),
+                    datepicker_elem,
+                ],
+                className='m-2',
+            ),
+            dbc.FormGroup(
+                [
+                    dbc.Label('Extrapolate growth:', className='mr-2'),
+                    radio_elem,
+                ],
+                className='m-2',
+            ),
+        ],
+        inline=True
+    )
 ])
 
-copyright_elem = html.Div(
-    'Copyright \u00A9 Xtract Technologies 2020',
-    style=dict(
-        position='relative',
-        left='-7vw',
-        width='95vw',
-        marginTop=20,
-        textAlign='right',
-        fontSize='12px',
-    )
-)
+case_graphs, death_graphs, table, _ = init_vis(COUNTRY, initial_start, 1)
 
-vis_plots, _ = init_vis(COUNTRY, initial_start, 1)
-
-map_elem = html.Div(
+cases_elem = dbc.Row(
     [
-        generate_map(
-            tuple(province_totals.Province.tolist()),
-            tuple(province_totals['Total Cases'].tolist())
-        )
+        dbc.Col(case_graphs[0], id='total-cases-div'),
+        dbc.Col(case_graphs[1], id='new-cases-div')
     ],
-    id='map'
+    className='p-3'
 )
 
-vis_elem = html.Div(vis_plots, id='vis', style=dict(marginBottom=60))
+deaths_elem = dbc.Row(
+    [
+        dbc.Col(death_graphs[0], id='total-deaths-div'),
+        dbc.Col(death_graphs[1], id='new-deaths-div')
+    ],
+    className='p-2'
+)
 
-app.layout = html.Div(
+table_elem = html.Details(
+    [
+        html.Summary('Expand for tabular data'),
+        html.Div(table, id='table', className='p-2 mx-3'),
+    ],
+    className='py-4',
+)
+
+app.layout = dbc.Container(
     children=[
-        # logo_elem,
         heading_elem,
         map_elem,
-        dropdown_elem,
         input_elem,
-        vis_elem,
-        # copyright_elem,
-        html.Div(id='placeholder'),
+        cases_elem,
+        deaths_elem,
+        table_elem,
         dcc.Store('map-store'),
     ],
-    style={'width': '86%', 'margin': 'auto'}
 )
 
 
 # Callbacks
 @app.callback(
     [
-        Output('vis', 'children'),
+        Output('total-cases-div', 'children'),
+        Output('new-cases-div', 'children'),
+        Output('total-deaths-div', 'children'),
+        Output('new-deaths-div', 'children'),
+        Output('table', 'children'),
         Output('map-store', 'data'),
     ],
     [
@@ -155,7 +177,17 @@ app.layout = html.Div(
     ]
 )
 def update_vis(province, start_date, project):
-    return init_vis(province, start_date, project)
+    case_graphs, death_graphs, table, map_data = init_vis(province, start_date, project)
+
+    return (
+        case_graphs[0],
+        case_graphs[1],
+        death_graphs[0],
+        death_graphs[1],
+        table,
+        map_data
+    )
+
 
 
 app.clientside_callback(
