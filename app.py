@@ -25,7 +25,7 @@ from helpers import (
     placeholder_graph
 )
 
-app = dash.Dash(external_stylesheets=[dbc.themes.BOOTSTRAP])
+app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
 server = app.server
 
 COUNTRY = os.environ.get('COUNTRY', 'US')
