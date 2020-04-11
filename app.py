@@ -23,6 +23,7 @@ from helpers import (
     generate_map,
     get_data,
     placeholder_graph,
+    COUNTRY,
     PROVINCE_NAME
 )
 
@@ -32,8 +33,6 @@ app = dash.Dash(
     meta_tags=[dict(name="viewport", content="width=device-width, initial-scale=1")]
 )
 server = app.server
-
-COUNTRY = os.environ.get('COUNTRY', 'Canada')
 
 # Get data
 data, province_totals = get_data(datetime.now().strftime('%H'))

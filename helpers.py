@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import curve_fit
 
-COUNTRY = os.environ.get('COUNTRY', 'Canada')
+COUNTRY = os.environ.get('COUNTRY', 'US')
 
 LAT_RANGES = {
     'Canada': [40, 83],
