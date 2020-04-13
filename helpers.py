@@ -2,6 +2,7 @@ import os
 from functools import lru_cache
 import time
 import requests
+from multiprocessing import Pool
 from datetime import datetime, timedelta
 
 import dash
@@ -15,7 +16,7 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import curve_fit
 
-COUNTRY = os.environ.get('COUNTRY', 'US')
+COUNTRY = os.environ.get('COUNTRY', 'Canada')
 
 LAT_RANGES = {
     'Canada': [40, 83],
@@ -152,78 +153,118 @@ def filter_province(hour_str, filt=COUNTRY):
     return data, provinces_totals
 
 
-def exp_fun(x, a, b):
-    return b * np.exp(a * x)
+def _gen_logistic(t, K, alpha, nu, t0):
+    K = K * 6
+    t0 = t0 * 100
+    return 10 ** K / ((1 + np.exp(- alpha * nu * (t - t0))) ** (1 / nu))
 
 
-def sig_fun(x, a, b, c):
-    return 10 ** a / (1 + np.exp(- b * (x - c)))
+def run_bootstrap(args):
+    t, y, sigma, block_len, bounds = args
+    poptb = None
+    try:
+        samples = np.random.choice(len(t), int(len(t) / block_len))
 
+        tb, yb, sb = [], [], []
+        for sample in samples:
+            tb.extend(t[sample:sample+block_len])
+            yb.extend(y[sample:sample+block_len])
+            sb.extend(sigma[sample:sample+block_len])
 
-def gom_fun(x, a, b, c):
-    return 10 ** a * np.exp(-np.exp(- b * (x - c)))
-
-
-@lru_cache(64)
-def fit_exponential(x, y, popt=None):
-    popt, _ = curve_fit(exp_fun, x, y, bounds=([0.01, 0.01], [0.4, 500]))
-    return popt
-
-
-@lru_cache(64)
-def fit_sigmoid(x, y, fn=gom_fun, popt=None):
-    if not len(y) > 0:
-        return None
-    if max(y) < 20:
-        return None
-
-    if popt is not None:
-        asymp = [max(np.log10(max(y)), popt[0] * 0.001), np.log10(10 ** popt[0] * 0.15)]
-        slope = [popt[1] * 0.9, popt[1] * 1.1]
-        midpt = popt[2] + 10
-    else:
-        asymp = [max(np.log10(max(y)), 0.1), 8]
-        slope = [0.05, 0.9]
-        midpt = 10
-
-    x = np.array(x)[:-1]
-    y = np.array(y)[:-1]
-
-    sigma = np.ones(len(x)) * (1 - x / x.max()) * 10 + 1
+        poptb, _ = curve_fit(
+            _gen_logistic, tb, yb,
+            bounds=list(zip(*bounds)),
+            sigma=sb,
+            # ftol=0.0001, xtol=0.0001,
+        )
     
-    sses = []
-    popts = []
-    for time_shift in range(max(60, int(midpt)+1), 301, 60):
+    except:
+        pass
+
+    return poptb
+
+
+class GeneralizedLogistic:
+
+    def __init__(self, t, y, popt):
+        t = tuple(t.tolist())
+        y = tuple(y.tolist())
+
+        self.popt, self.popt_bs = self._fit(t, y, popt)
+    
+    @staticmethod
+    @lru_cache(64)
+    def _fit(t, y, popt=None):
+        # Don't fit unless we have enough data
+        if not len(y) > 0:
+            return None, None
+        if max(y) < 50:
+            return None, None
+
+        # Define sensible parameter bounds
+        bounds = [
+            [max(np.log10(max(y)), 0.1) / 6, 6 / 6],
+            [0.05, 1],
+            [0.01, 1],
+            [10 / 100, 100 / 100],
+        ]
+
+        # If previous bounds are passed, use them to constrain parameters
+        if popt is not None:
+            bounds = [
+                [np.log10(10 ** popt[0] * 0.15), 6 / 6],
+                [popt[1] * 0.95, popt[1] * 1.05],
+                [popt[2] * 0.95, popt[2] * 1.05],
+                [int(popt[3]) + 5 / 100, max(int(popt[3]) + 30 / 100, 100 / 100)]
+            ]
+
+        # Don't use most recent (incomplete) day
+        t = np.array(t)[:-1]
+        y = np.array(y)[:-1]
+
+        # Apply greater weight to more recent time points (arbitrarily)
+        sigma = np.ones(len(t)) * (1 - t / t.max()) * 10 + 1
+
         popt, _ = curve_fit(
-            fn, x, y,
-            bounds=([asymp[0], slope[0], midpt], [asymp[1], slope[1], time_shift]),
+            _gen_logistic, t, y,
+            bounds=list(zip(*bounds)),
             sigma=sigma
         )
-        sses.append(((y - fn(x, *popt)) ** 2).sum())
-        popts.append(popt)
-    popt = popts[np.argmin(sses)]
 
-    if 10 ** popt[0] > 8 * max(y):
-        return None
+        bootstraps = 100
+        block_len = 5
+        with Pool(8) as p:
+            popt_bs = p.map(run_bootstrap, ((t, y, sigma, block_len, bounds) for _ in range(bootstraps)))
+        
+        popt_bs = [p for p in popt_bs if p is not None]
+        popt_bs = np.stack(popt_bs)
+        popt = tuple(popt.tolist())
 
-    return popt
+        return popt, popt_bs
+        
+    def __call__(self, t):
+        return _gen_logistic(t, *self.popt)
+    
+    def _step(self, y, dt):
+        K, alpha, nu, t0 = np.transpose(self.popt_bs)
+        K = K * 6
+        t0 = t0 * 100
+        return y + y * alpha * (1 - (y / 10 ** K) ** nu) * dt
+    
+    def project(self, y0, dt, n):
+        yi = [y0 for _ in self.popt_bs]
+        y = [yi]
+        for i in range(n):
+            yi = self._step(yi, dt)
+            y.append(yi)
+        
+        return np.stack(y)
 
 
 def generate_plot(data, start, project=1, metric='Cases', sig_fit=None):
+    # Parse start and end dates for chart
     start = datetime.strptime(start, '%Y-%m-%d')
     end = datetime.now() + timedelta(days=project)
-
-    x = data.index.astype(np.int64) / 1e9 / 60 / 1440
-    x_min = x.min()
-    x = x - x_min
-    y = data[f'Total {metric}']
-
-    fn = gom_fun
-    sig_fit = fit_sigmoid(tuple(x.tolist()), tuple(y.tolist()), fn=fn, popt=sig_fit)
-
-    trend_dates = pd.date_range(data.index.min(), datetime.now() + timedelta(days=60))
-    trend_x = trend_dates.astype(np.int64) / 1e9 / 60 / 1440
-    trend_x = trend_x - x_min
 
     traces_total = []
     traces_new = []
@@ -251,45 +292,78 @@ def generate_plot(data, start, project=1, metric='Cases', sig_fit=None):
     ))
     y_max_new = max(y_max_new, data[f'New {metric}'].max())
 
-    if sig_fit is not None:
-        sig_fit = tuple(sig_fit.tolist())
-        y = fn(trend_x, *sig_fit)
-        y_new = np.array([0] + [y[i] - y[i-1] for i in range(1, len(y))])
+    # Convert time to integer days starting from 0
+    t = data.index.astype(np.int64) / 1e9 / 60 / 1440
+    t_min = t.min()
+    t = t - t_min
+
+    # Get current metric
+    y = data[f'Total {metric}']
+
+    # Find best fit
+    gen_log = GeneralizedLogistic(t, y, popt=sig_fit)
+
+    if gen_log.popt is not None:
+
+        # Generate projections using differential equation
+        proj_n = 21
+        proj_dt = 1
+        proj_y0 = y[-2]
+        proj_dates = pd.date_range(
+            data.index[-1] - timedelta(days=1),
+            data.index[-1] + timedelta(days=proj_n),
+            closed='left'
+        )
+        proj_y = gen_log.project(proj_y0, proj_dt, proj_n)
+        proj_lb = np.quantile(proj_y, 0.1, axis=1)
+        proj_ub = np.quantile(proj_y, 0.9, axis=1)
+
+        proj_bounds = np.concatenate((proj_ub[::-1], proj_lb))
+        proj_dates = pd.to_datetime(np.concatenate((proj_dates[::-1].values, proj_dates.values)))
+
+        traces_total.append(dict(
+            x=proj_dates,
+            y=proj_bounds,
+            fill='toself',
+            mode='lines',
+            opacity=0.7,
+            line=dict(width=1, color='lightgrey'),
+            name='Confidence interval (80%)',
+        ))
+        y_max_total = max(y_max_total, proj_bounds[proj_dates <= end].max())
+
+        trend_dates = pd.date_range(data.index[0], data.index[-1] + timedelta(days=proj_n), closed='left')
+        fit_t = trend_dates.astype(np.int64) / 1e9 / 60 / 1440
+        fit_t = fit_t - t_min
+        fit_y = gen_log(fit_t)
+        fit_y_new = np.insert(fit_y[1:] - fit_y[:-1], 0, 0)
 
         traces_total.append(dict(
             x=trend_dates,
-            y=y,
-            ids=[str(id) for id in range(len(trend_dates))],
+            y=fit_y,
             mode='lines',
             opacity=0.7,
-            line=dict(width=3, dash='dash'),
-            name='Trendline (Gompertz)'
+            line=dict(width=3, dash='dash', color='#ff7f0e'),
+            name='Trendline (generalized logistic)'
         ))
-        y_max_total = max(y_max_total, y[trend_dates <= end].max())
+        y_max_total = max(y_max_total, fit_y[trend_dates <= end].max())
 
         traces_new.append(dict(
             x=trend_dates,
-            y=y_new,
-            ids=[str(id) for id in range(len(trend_dates))],
+            y=fit_y_new,
             mode='lines',
             opacity=0.7,
-            line=dict(width=3, dash='dash'),
-            name='Trendline (Gompertz)'
+            line=dict(width=3, dash='dash', color='#ff7f0e'),
+            name='Trendline (generalized logistic)'
         ))
-        y_max_new = max(y_max_new, y_new[trend_dates <= end].max())
+        y_max_new = max(y_max_new, fit_y_new[trend_dates <= end].max())
     
     total_graph = dcc.Graph(
         figure={
             'data': traces_total,
             'layout': dict(
-                xaxis=dict(
-                    # title='Date',
-                    range=[start, end]
-                ),
-                yaxis=dict(
-                    # title=f'{metric}',
-                    range=[- y_max_total * 0.02, y_max_total * 1.02]
-                ),
+                xaxis=dict(range=[start, end]),
+                yaxis=dict(range=[- y_max_total * 0.02, y_max_total * 1.02]),
                 hovermode='closest',
                 height=450,
                 title=f'Total {metric}',
@@ -300,7 +374,6 @@ def generate_plot(data, start, project=1, metric='Cases', sig_fit=None):
                 transition={'duration': 250, 'easing': 'linear-in-out'}
             ),
         },
-        # animate=True,
         config=dict(displayModeBar=False),
         id=f'total-{metric.lower()}'
     )
@@ -309,15 +382,8 @@ def generate_plot(data, start, project=1, metric='Cases', sig_fit=None):
         figure={
             'data': traces_new,
             'layout': dict(
-                xaxis=dict(
-                    # title='Date',
-                    range=[start, end],
-                    showgrid=True
-                ),
-                yaxis=dict(
-                    # title=f'{metric}',
-                    range=[- y_max_new * 0.02, y_max_new * 1.02]
-                ),
+                xaxis=dict(range=[start, end], showgrid=True),
+                yaxis=dict(range=[- y_max_new * 0.02, y_max_new * 1.02]),
                 hovermode='closest',
                 height=450,
                 title=f'New {metric}',
@@ -328,12 +394,11 @@ def generate_plot(data, start, project=1, metric='Cases', sig_fit=None):
                 transition={'duration': 250, 'easing': 'linear-in-out'}
             ),
         },
-        # animate=True,
         config=dict(displayModeBar=False),
         id=f'new-{metric.lower()}'
     )
 
-    return (total_graph, new_graph), sig_fit
+    return (total_graph, new_graph), gen_log.popt
 
 
 def generate_table(data):
