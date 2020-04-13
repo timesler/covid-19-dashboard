@@ -160,22 +160,19 @@ def _gen_logistic(t, K, alpha, nu, t0):
 
 
 def run_bootstrap(args):
-    t, y, sigma, block_len, bounds = args
+    t, ecdf, sigma, block_len, bounds = args
     poptb = None
     try:
-        samples = np.random.choice(len(t), int(len(t) / block_len))
-
-        tb, yb, sb = [], [], []
-        for sample in samples:
-            tb.extend(t[sample:sample+block_len])
-            yb.extend(y[sample:sample+block_len])
-            sb.extend(sigma[sample:sample+block_len])
+        num_samples = ecdf.sum()
+        new_samples = np.random.choice(len(ecdf), num_samples, p=ecdf / num_samples)
+        new_ecdf = np.bincount(new_samples)
+        yb = np.cumsum(new_ecdf)
 
         poptb, _ = curve_fit(
-            _gen_logistic, tb, yb,
+            _gen_logistic, t, yb,
             bounds=list(zip(*bounds)),
-            sigma=sb,
-            # ftol=0.0001, xtol=0.0001,
+            sigma=sigma,
+            # ftol=0.001, xtol=0.001,
         )
     
     except:
@@ -231,14 +228,16 @@ class GeneralizedLogistic:
             sigma=sigma
         )
 
-        # bootstraps = 100
-        bootstraps = 0
+        ecdf = np.insert(y[1:] - y[:-1], 0, y[0]).astype(np.int)
+
+        bootstraps = 100
+        # bootstraps = 0
         block_len = 5
         with Pool(8) as p:
-            popt_bs = p.map(run_bootstrap, ((t, y, sigma, block_len, bounds) for _ in range(bootstraps)))
+            popt_bs = p.map(run_bootstrap, ((t, ecdf, sigma, block_len, bounds) for _ in range(bootstraps)))
         
         popt_bs = [p for p in popt_bs if p is not None]
-        # popt_bs = np.stack(popt_bs)
+        popt_bs = np.stack(popt_bs)
         popt = tuple(popt.tolist())
 
         return popt, popt_bs
@@ -306,38 +305,45 @@ def generate_plot(data, start, project=1, metric='Cases', sig_fit=None):
 
     if gen_log.popt is not None:
 
-        # Generate projections using differential equation
-        proj_n = 21
-        # proj_dt = 1
-        # proj_y0 = y[-2]
-        # proj_dates = pd.date_range(
-        #     data.index[-1] - timedelta(days=1),
-        #     data.index[-1] + timedelta(days=proj_n),
-        #     closed='left'
-        # )
-        # proj_y = gen_log.project(proj_y0, proj_dt, proj_n)
-        # proj_lb = np.quantile(proj_y, 0.1, axis=1)
-        # proj_ub = np.quantile(proj_y, 0.9, axis=1)
-
-        # proj_bounds = np.concatenate((proj_ub[::-1], proj_lb))
-        # proj_dates = pd.to_datetime(np.concatenate((proj_dates[::-1].values, proj_dates.values)))
-
-        # traces_total.append(dict(
-        #     x=proj_dates,
-        #     y=proj_bounds,
-        #     fill='toself',
-        #     mode='lines',
-        #     opacity=0.7,
-        #     line=dict(width=1, color='lightgrey'),
-        #     name='Confidence interval (80%)',
-        # ))
-        # y_max_total = max(y_max_total, proj_bounds[proj_dates <= end].max())
-
+        proj_n = 30
         trend_dates = pd.date_range(data.index[0], data.index[-1] + timedelta(days=proj_n), closed='left')
         fit_t = trend_dates.astype(np.int64) / 1e9 / 60 / 1440
         fit_t = fit_t - t_min
         fit_y = gen_log(fit_t)
-        fit_y_new = np.insert(fit_y[1:] - fit_y[:-1], 0, 0)
+        fit_y_new = np.insert(fit_y[1:] - fit_y[:-1], 0, fit_y[0])
+
+        # Generate projections using differential equation
+        proj_dt = 1
+        proj_dates = pd.date_range(
+            data.index[-1] - timedelta(days=1),
+            data.index[-1] + timedelta(days=proj_n),
+            closed='left'
+        )
+        proj_y0 = fit_y[trend_dates <= proj_dates[0]][-1]
+        proj_y = gen_log.project(proj_y0, proj_dt, proj_n)
+        proj_lb = np.quantile(proj_y, 0.1, axis=1)
+        proj_ub = np.quantile(proj_y, 0.9, axis=1)
+
+        traces_total.append(dict(
+            x=proj_dates,
+            y=proj_lb,
+            mode='lines',
+            opacity=0.7,
+            line=dict(width=1, color='lightgrey'),
+            name='Confidence interval (80%)',
+        ))
+
+        traces_total.append(dict(
+            x=proj_dates,
+            y=proj_ub,
+            fill='tonexty',
+            mode='lines',
+            opacity=0.7,
+            line=dict(width=1, color='lightgrey'),
+            name='Confidence interval (80%)',
+            showlegend=False
+        ))
+        y_max_total = max(y_max_total, proj_ub[proj_dates <= end].max())
 
         traces_total.append(dict(
             x=trend_dates,

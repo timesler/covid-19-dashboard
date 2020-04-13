@@ -94,6 +94,7 @@ radio_elem = dbc.RadioItems(
         dict(label='1 week', value=7),
         dict(label='2 weeks', value=14),
         dict(label='3 weeks', value=21),
+        dict(label='1 month', value=30),
     ],
     value=1,
     inline=True
