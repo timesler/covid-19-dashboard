@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import curve_fit
 
-COUNTRY = os.environ.get('COUNTRY', 'Canada')
+INIT_COUNTRY = os.environ.get('COUNTRY', 'Canada')
 
 LAT_RANGES = {
     'Canada': [40, 83],
@@ -56,8 +56,8 @@ GEO_FNS = {
 
 
 @lru_cache(1)
-def get_geojson():
-    return GEO_FNS[COUNTRY]()
+def get_geojson(country):
+    return GEO_FNS[country]()
 
 
 # TODO: finish global data function
@@ -139,14 +139,14 @@ DATA_FNS = {
 
 
 @lru_cache(1)
-def get_data(hour_str):
-    return DATA_FNS[COUNTRY]()
+def get_data(hour_str, country):
+    return DATA_FNS[country]()
 
 
 @lru_cache(20)
-def filter_province(hour_str, filt=COUNTRY):
-    data, provinces_totals = get_data(hour_str)
-    filt = COUNTRY if filt is None else filt
+def filter_province(hour_str, country, filt=None):
+    data, provinces_totals = get_data(hour_str, country)
+    filt = country if filt is None else filt
     data = data.loc[data.Province == filt]
     data['New Cases'] = data['Total Cases'].diff()
     data['New Deaths'] = data['Total Deaths'].diff()
@@ -408,8 +408,8 @@ def generate_plot(data, start, project=1, metric='Cases', sig_fit=None):
     return (total_graph, new_graph), gen_log.popt
 
 
-def generate_table(data):
-    data[PROVINCE_NAME[COUNTRY]] = data.Province
+def generate_table(data, country):
+    data[PROVINCE_NAME[country]] = data.Province
     data = data.drop(columns='Province')
     table = dash_table.DataTable(
         columns=[{"name": i, "id": i} for i in data.columns],
@@ -422,11 +422,11 @@ def generate_table(data):
 
 
 @lru_cache(1)
-def generate_map(provinces, total_cases):
+def generate_map(provinces, total_cases, country):
     df = pd.DataFrame({'Province': provinces, 'Total Cases': total_cases})
-    df = df.loc[df.Province != COUNTRY]
+    df = df.loc[df.Province != country]
 
-    geojson = get_geojson()
+    geojson = get_geojson(country)
 
     fig = px.choropleth(
         geojson=geojson, 
@@ -449,17 +449,17 @@ def generate_map(provinces, total_cases):
         labels={'color':'Total cases'},
     )
 
-    fig.data[0].hovertemplate = '<b>%{hovertext}</b><br><br>Total cases: %{z}<extra></extra>'
+    fig.data[0].hovertemplate = '<b>%{hovertext}</b><br>Total cases: %{z}<extra></extra>'
 
     fig.update_geos(
-        lataxis_range=LAT_RANGES[COUNTRY],
-        lonaxis_range=LON_RANGES[COUNTRY],
+        lataxis_range=LAT_RANGES[country],
+        lonaxis_range=LON_RANGES[country],
         projection_rotation=dict(lat=30),
         visible=False
     )
     
     fig.update_layout(
-        title=dict(text=f'Total Cases By {PROVINCE_NAME[COUNTRY]}', y=0.95, x=0),
+        title=dict(text=f'Total Cases By {PROVINCE_NAME[country]}', y=0.95, x=0),
         margin={"r": 0, "t": 0, "l": 0, "b": 0},
         dragmode=False,
         annotations=[

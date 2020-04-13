@@ -23,7 +23,7 @@ from helpers import (
     generate_map,
     get_data,
     placeholder_graph,
-    COUNTRY,
+    INIT_COUNTRY,
     PROVINCE_NAME
 )
 
@@ -35,18 +35,18 @@ app = dash.Dash(
 server = app.server
 
 # Get data
-data, province_totals = get_data(datetime.now().strftime('%H'))
+data, province_totals = get_data(datetime.now().strftime('%H'), INIT_COUNTRY)
 initial_start = (datetime.now() - timedelta(weeks=8)).strftime('%Y-%m-%d')
 
 
-def init_vis(province, start_date, project):
+def init_vis(province, start_date, project, country):
 
     timer_start = time.time()
-    data_filt, province_totals = filter_province(datetime.now().strftime('%H'), filt=province)
+    data_filt, province_totals = filter_province(datetime.now().strftime('%H'), country, filt=province)
     print(f'\nGet data: {time.time() - timer_start} seconds')
     
     timer_start = time.time()
-    table = generate_table(data_filt)
+    table = generate_table(data_filt, country)
     print(f'Generate table: {time.time() - timer_start} seconds')
     
     timer_start = time.time()
@@ -58,14 +58,30 @@ def init_vis(province, start_date, project):
 
 
 # Layout
-heading_elem = html.H2(f'COVID-19: {COUNTRY}', className='my-3')
+heading_elem = html.H2(f'COVID-19: {INIT_COUNTRY}', className='my-3', id='heading')
+
+country_elem = dbc.Col(
+    [
+        dbc.RadioItems(
+            id='country-select',
+            options=[
+                dict(label='Canada', value='Canada'),
+                dict(label='US', value='US'),
+            ],
+            value=INIT_COUNTRY,
+            inline=True
+        )
+    ],
+    className='text-center font-weight-bold p-3'
+)
 
 map_elem = dbc.Col(
     [
         generate_map(
             tuple(province_totals.Province.tolist()),
-            tuple(province_totals['Total Cases'].tolist())
-        )
+            tuple(province_totals['Total Cases'].tolist()),
+            INIT_COUNTRY
+        ),
     ],
     id='map',
     md=dict(offset=1, size=10),
@@ -75,7 +91,7 @@ map_elem = dbc.Col(
 dropdown_elem = dcc.Dropdown(
     id='province-select',
     options=[dict(label=p, value=p) for p in province_totals.Province.values],
-    value=COUNTRY,
+    value=INIT_COUNTRY,
     clearable=False,
 )
 
@@ -94,7 +110,6 @@ radio_elem = dbc.RadioItems(
         dict(label='1 week', value=7),
         dict(label='2 weeks', value=14),
         dict(label='3 weeks', value=21),
-        # dict(label='1 month', value=30),
     ],
     value=1,
     inline=True
@@ -105,8 +120,8 @@ input_elem = html.Div([
         [
             dbc.FormGroup(
                 [
-                    dbc.Label(f'Select {PROVINCE_NAME[COUNTRY].lower()}:'),
-                    dbc.Col([dropdown_elem], width='True'),
+                    dbc.Label(f'Select {PROVINCE_NAME[INIT_COUNTRY].lower()}:'),
+                    dbc.Col([dropdown_elem], width='True', id='province-select-div'),
                 ],
                 className='m-2',
             )
@@ -134,7 +149,7 @@ input_elem = html.Div([
     )
 ])
 
-case_graphs, death_graphs, table, _ = init_vis(COUNTRY, initial_start, 1)
+case_graphs, death_graphs, table, _ = init_vis(INIT_COUNTRY, initial_start, 1, INIT_COUNTRY)
 
 cases_elem = dbc.Row(
     [
@@ -163,6 +178,7 @@ table_elem = html.Details(
 app.layout = html.Div(
     children=[
         heading_elem,
+        country_elem,
         map_elem,
         input_elem,
         cases_elem,
@@ -190,10 +206,11 @@ app.layout = html.Div(
     [
         State('time-select', 'date'),
         State('project-select', 'value'),
+        State('country-select', 'value')
     ]
 )
-def update_vis(province, start_date, project):
-    case_graphs, death_graphs, table, map_data = init_vis(province, start_date, project)
+def update_vis(province, start_date, project, country):
+    case_graphs, death_graphs, table, map_data = init_vis(province, start_date, project, country)
 
     return (
         case_graphs[0],
@@ -204,6 +221,34 @@ def update_vis(province, start_date, project):
         map_data
     )
 
+
+@app.callback(
+    [
+        Output('map', 'children'),
+        Output('province-select-div', 'children'),
+        Output('heading', 'children'),
+    ],
+    [Input('country-select', 'value')]
+)
+def update_country(country):
+    timer_start = time.time()
+    data_filt, province_totals = filter_province(datetime.now().strftime('%H'), country)
+    print(f'\nGet data: {time.time() - timer_start} seconds')
+
+    map_graph = generate_map(
+        tuple(province_totals.Province.tolist()),
+        tuple(province_totals['Total Cases'].tolist()),
+        country
+    )
+
+    dropdown_elem = dcc.Dropdown(
+        id='province-select',
+        options=[dict(label=p, value=p) for p in province_totals.Province.values],
+        value=country,
+        clearable=False,
+    )
+
+    return [map_graph], [dropdown_elem], f'COVID-19: {country}'
 
 
 app.clientside_callback(
